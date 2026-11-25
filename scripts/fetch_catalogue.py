@@ -59,7 +59,7 @@ KEEP_NUTRIENTS = [
 ]
 
 
-def get(url: str, attempts: int = 6) -> dict:
+def get(url: str, attempts: int = 5) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
     for attempt in range(attempts):
         try:
@@ -83,38 +83,62 @@ def slim(p: dict) -> dict:
     }
 
 
-def fetch_products(store: str = "coles", page_size: int = 100) -> list[dict]:
-    """Page through the search API. A page that keeps failing is skipped, not fatal: a snapshot that is
-    missing a few hundred products is still useful, and the monthly refresh fills the gaps."""
+# Open Food Facts often refuses deep pages of one big query, so the catalogue is gathered as several
+# smaller slices (the most-scanned products, then aisle by aisle) and merged with the last snapshot.
+SLICES: list[dict] = [{}] + [
+    {"categories_tags": f"en:{c}"}
+    for c in (
+        "snacks", "dairies", "beverages", "breakfasts", "cereals-and-potatoes", "biscuits-and-cakes",
+        "chocolates", "sauces", "spreads", "breads", "frozen-foods", "meats", "plant-based-foods",
+        "canned-foods", "condiments", "pastas", "cheeses", "yogurts", "confectioneries", "baby-foods",
+    )
+]  # fmt: skip
+MAX_PAGES_PER_SLICE = 8
+TIME_BUDGET_S = 70 * 60
+
+
+def fetch_products(store: str = "coles", page_size: int = 100) -> dict[str, dict]:
+    """Collect products slice by slice. A slice stops at its first page that keeps failing; the run stops
+    when the time budget is spent. Whatever arrived is kept, and the next refresh adds to it."""
     products: dict[str, dict] = {}
-    page, pages, misses = 1, None, 0
-    while pages is None or page <= pages:
-        q = {
-            "countries_tags": "en:australia",
-            "stores_tags": store,
-            "fields": ",".join(FIELDS),
-            "page_size": page_size,
-            "page": page,
-            "sort_by": "unique_scans_n",
-        }
-        try:
-            data = get(f"{SEARCH}?{urllib.parse.urlencode(q)}")
-            misses = 0
-        except RuntimeError as e:
-            misses += 1
-            print(f"page {page}: skipped ({e})", flush=True)
-            if misses >= 3 or pages is None:
+    started = time.time()
+    for extra in SLICES:
+        label = extra.get("categories_tags", "most scanned")
+        for page in range(1, MAX_PAGES_PER_SLICE + 1):
+            if time.time() - started > TIME_BUDGET_S:
+                print("time budget spent", flush=True)
+                return products
+            q = {
+                "countries_tags": "en:australia",
+                "stores_tags": store,
+                **extra,
+                "fields": ",".join(FIELDS),
+                "page_size": page_size,
+                "page": page,
+                "sort_by": "unique_scans_n",
+            }
+            try:
+                data = get(f"{SEARCH}?{urllib.parse.urlencode(q)}", attempts=4)
+            except RuntimeError:
+                print(f"{label} page {page}: skipped, moving on", flush=True)
                 break
-            page += 1
-            continue
-        pages = pages or -(-int(data.get("count") or 0) // page_size)
-        for p in data.get("products", []):
-            if p.get("code") and (p.get("product_name") or p.get("product_name_en")):
-                products[p["code"]] = slim(p)
-        print(f"page {page}/{pages}: {len(products)} kept", flush=True)
-        page += 1
-        time.sleep(12)  # Open Food Facts asks for at most ~10 search requests a minute
-    return list(products.values())
+            batch = data.get("products", [])
+            for p in batch:
+                if p.get("code") and (p.get("product_name") or p.get("product_name_en")):
+                    products[p["code"]] = slim(p)
+            print(f"{label} page {page}: {len(batch)} products, {len(products)} in total", flush=True)
+            time.sleep(10)  # Open Food Facts asks for at most ~10 search requests a minute
+            if len(batch) < page_size:
+                break
+    return products
+
+
+def previous_products() -> dict[str, dict]:
+    path = OUT / "catalogue.json.gz"
+    if not path.exists():
+        return {}
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        return {p["code"]: p for p in json.load(f).get("products", [])}
 
 
 def fetch_prices() -> list[dict]:
@@ -143,9 +167,12 @@ def fetch_prices() -> list[dict]:
 
 def main() -> None:
     OUT.mkdir(exist_ok=True)
-    products = fetch_products()
-    if len(products) < 1000:
-        raise SystemExit(f"Only {len(products)} products fetched; keeping the previous snapshot.")
+    fresh = fetch_products()
+    merged = {**previous_products(), **fresh}  # fresh data wins; products not seen this time are kept
+    if len(merged) < 300:
+        raise SystemExit(f"Only {len(merged)} products; keeping the previous snapshot.")
+    products = list(merged.values())
+    print(f"{len(fresh)} fetched this run, {len(products)} in the snapshot", flush=True)
     try:
         prices = fetch_prices()
     except RuntimeError as e:
