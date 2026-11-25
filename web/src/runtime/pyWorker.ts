@@ -35,7 +35,7 @@ async function boot(): Promise<Pyodide> {
   const py: Pyodide = await loadPyodide({ indexURL: PYODIDE_URL });
   progress("Loading libraries");
   await py.loadPackage(["pydantic"]);
-  progress("Loading the agent and 4,000+ products");
+  progress("Loading the agent and products");
   const [bundle, catalogue, prices] = await Promise.all([
     fetchBytes("py/trolley.zip"),
     fetchBytes("py/data/catalogue.json.gz"),

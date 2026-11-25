@@ -79,6 +79,8 @@ class SearchIndex:
         limit: int = 8,
     ) -> list[Hit]:
         terms = self._expand(query)
+        groups = [self._expand(w) for w in words(query) if w not in STOP]
+        groups = [g for g in groups if g]
         hits: list[Hit] = []
         for p, doc in zip(self.cat.products, self.docs, strict=True):
             if not passes(p, exclude_allergens, strict, labels, aisle, max_price_cents, in_stock_only):
@@ -93,6 +95,11 @@ class SearchIndex:
                     )
             if terms and score <= 0:
                 continue
+            # Favour products that match more of what was asked: "gluten free pasta" should rank pasta
+            # above gluten-free chips. Each query word counts once, whichever synonym matched it.
+            if groups:
+                covered = sum(any(doc.get(t) for t in g) for g in groups) / len(groups)
+                score *= 0.25 + 0.75 * covered**2
             # Small, explainable boosts: in stock, has full label data.
             score += 0.3 * p.in_stock + 0.2 * bool(p.ingredients)
             hits.append(Hit(p, score))

@@ -4,7 +4,7 @@
 
 [Try the demo](https://bunki-dev.github.io/trolley/) · runs entirely in your browser · bring your own Claude or Azure OpenAI key, or use the free demo mode
 
-It runs on **4,000+ real products sold in Australia** from [Open Food Facts](https://world.openfoodfacts.org), with real names, sizes, barcodes, ingredients, allergen and "may contain" data, dietary labels, nutrition and photos. A supermarket would plug in its own catalogue, pricing, stock and order systems behind the same tools.
+It runs on **1,600+ real products sold in Australia** from [Open Food Facts](https://world.openfoodfacts.org), with real names, sizes, barcodes, ingredients, allergen and "may contain" data, dietary labels, nutrition and photos. A supermarket would plug in its own catalogue, pricing, stock and order systems behind the same tools.
 
 > Why I built it: this is the agent described in the AI Engineer role in a supermarket's AI Commerce team. I wanted to show the part that's hard to get right: not the chat window, but grounding, guardrails, evals and the engineering around them.
 
@@ -79,7 +79,7 @@ CI runs the suite on every push in demo mode, where a keyword router drives the 
 
 | Real | Simulated (a supermarket's own systems would supply these) |
 | --- | --- |
-| Product names, brands, sizes, barcodes | Prices: demo prices from a size and aisle model, labelled as such. About 90 real prices reported to [Open Prices](https://prices.openfoodfacts.org) are used where available. |
+| Product names, brands, sizes, barcodes | Prices: demo prices from a size and aisle model, labelled as such. Real prices reported to [Open Prices](https://prices.openfoodfacts.org) are used for the handful of products that have one. |
 | Ingredients, allergens, "may contain", labels, nutrition, photos | Stock levels (about 4% out of stock, to exercise substitutions) |
 | A written help policy the agent must follow | The demo customer, their three orders, delivery slots and the clock |
 
