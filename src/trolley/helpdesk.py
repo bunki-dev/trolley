@@ -41,6 +41,8 @@ def policy() -> list[Section]:
 
 def search_policy(query: str, limit: int = 3) -> list[dict]:
     q = set(words(query))
+    if q & {"much", "cost", "costs", "price", "charge", "pay"}:
+        q |= {"fee", "fees"}
     scored = []
     for s in policy():
         body = words(s.title) * 3 + words(s.text)
@@ -80,8 +82,9 @@ def report_issue(store: Store, order_id: str, kind: str, items: list[dict], deta
         return case("with_our_team", 0, ["P1", "P4"], "Reported more than 7 days after delivery: passed to our team.")
 
     if kind == "late_delivery":
-        if any(c.order_id == order.id and c.kind == "late_delivery" and c.outcome == "credited" for c in store.cases):
-            return case("declined", 0, ["P3"], "A late credit was already applied to this order.")
+        prior = [c for c in store.cases if c.order_id == order.id and c.kind == "late_delivery"]
+        if prior:
+            raise StoreError(f"Already handled in case {prior[-1].id} ({prior[-1].outcome}). Refer to that case.")
         if order.minutes_late <= LATE_AFTER_MINUTES:
             return case("declined", 0, ["P3"], f"Delivered {order.minutes_late} min after the window: within policy.")
         return case("credited", LATE_CREDIT, ["P3"], f"Delivered {order.minutes_late} min late: $10 credit added.")

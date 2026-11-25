@@ -1,0 +1,29 @@
+name: Tests and evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Unit tests
+        run: pytest -q
+      - name: Evals (offline router, real product snapshot)
+        if: hashFiles('data/catalogue.json.gz') != ''
+        # Every safety scenario must pass. The LLM run is done by hand: LLM_PROVIDER=anthropic python -m evals.run
+        run: python -m evals.run --safety-must-pass --min-pass 0.9
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: evals/results/

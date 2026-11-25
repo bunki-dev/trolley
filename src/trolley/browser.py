@@ -17,6 +17,8 @@ from .search import SearchIndex
 _cat: Catalogue | None = None
 _index: SearchIndex | None = None
 _session: Session | None = None
+# Direct UI actions. Anything that needs the customer's confirmation still goes through the agent.
+UI_TOOLS = {"set_basket_qty", "view_basket", "confirm_action"}
 
 
 def _provider(settings: dict):
@@ -54,6 +56,31 @@ def products(codes_json: str) -> str:
     return json.dumps({c: _cat.by_code[c].card() for c in codes if _cat and c in _cat.by_code})
 
 
+def tool(name: str, args_json: str = "{}") -> str:
+    """Buttons in the app (add to basket, change quantity) call the same guarded tools the agent uses."""
+    from .tools import TOOLS_BY_NAME, ToolError
+
+    t = TOOLS_BY_NAME.get(name)
+    if t is None or name not in UI_TOOLS:
+        return json.dumps({"error": f"{name} can't be called from the app."})
+    try:
+        out = t.run(_session.ctx, json.loads(args_json or "{}"))
+    except ToolError as e:
+        return json.dumps({"error": str(e), "state": _session.store.snapshot()})
+    return json.dumps({"result": out, "state": _session.store.snapshot()}, default=str)
+
+
+def confirm(token: str) -> str:
+    """The customer tapped Confirm on a card in the app: that tap is their yes."""
+    _session.store.new_turn("yes (tapped Confirm in the app)")
+    return tool("confirm_action", json.dumps({"confirmation_id": token}))
+
+
+def describe(settings_json: str = "{}") -> str:
+    p = _provider(json.loads(settings_json or "{}"))
+    return json.dumps({"model": p.model})
+
+
 async def chat(message: str, settings_json: str = "{}") -> str:
     agent = TrolleyAgent(_provider(json.loads(settings_json or "{}")))
     try:
@@ -71,6 +98,19 @@ async def chat(message: str, settings_json: str = "{}") -> str:
             "trace": turn.trace,
             "model": turn.model,
             "state": _session.store.snapshot(),
+            "products": _cards(turn.reply),
+            "pending": [
+                {"token": p.token, "summary": p.summary}
+                for p in _session.store.pending.values()
+                if p.turn == _session.store.turn
+            ],
         },
         default=str,
     )
+
+
+def _cards(reply: str) -> dict:
+    import re
+
+    codes = dict.fromkeys(re.findall(r"\[\[(\d{6,14})\]\]", reply))
+    return {c: _cat.by_code[c].card() for c in codes if c in _cat.by_code}

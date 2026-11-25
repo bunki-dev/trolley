@@ -18,12 +18,14 @@ MAX_INPUT_CHARS = 2000
 _INJECTION = re.compile(
     r"ignore (all |any |the )?(previous|prior|above|your) (instructions|rules|prompt)|system prompt|"
     r"you are now|developer mode|jailbreak|disregard (your|the|all) (rules|instructions|policy)|"
-    r"act as (an? )?(admin|manager|developer)|pretend (you are|to be)|override (the )?(policy|limit)",
+    r"act as (an? )?(admin|manager|developer)|pretend (you are|to be)|override (the )?(policy|limit)|"
+    r"^\s*\[?(system|developer|admin)\]?\s*:|(admin|god|debug) mode",
     re.I,
 )
 _OTHER_CUSTOMER = re.compile(
     r"(someone|somebody|another (customer|person)|other customer'?s?|my (neighbou?r|friend|partner)'?s?) "
-    r"(order|account|address|details|phone)",
+    r"(order|account|address|details|phone)|"
+    r"(address|phone|email|details|name) (of|for) (the|that|this|another) (customer|person|shopper)",
     re.I,
 )
 _EMERGENCY = re.compile(

@@ -59,20 +59,20 @@ KEEP_NUTRIENTS = [
 ]
 
 
-def get(url: str) -> dict:
+def get(url: str, attempts: int = 6) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    for attempt in range(4):
+    for attempt in range(attempts):
         try:
             t = time.time()
             with urllib.request.urlopen(req, timeout=40) as r:
                 data = json.loads(r.read())
             print(f"  {url[:90]}... {time.time() - t:.1f}s", flush=True)
             return data
-        except Exception as e:  # rate limits and blips: back off and retry
-            wait = 10 * (attempt + 1)
+        except Exception as e:  # Open Food Facts sheds load with 503s: back off patiently
+            wait = 30 * (attempt + 1)
             print(f"  retry in {wait}s ({e})", flush=True)
             time.sleep(wait)
-    raise RuntimeError(f"giving up on {url}")
+    raise RuntimeError(f"giving up on {url[:120]}")
 
 
 def slim(p: dict) -> dict:
@@ -84,9 +84,11 @@ def slim(p: dict) -> dict:
 
 
 def fetch_products(store: str = "coles", page_size: int = 100) -> list[dict]:
+    """Page through the search API. A page that keeps failing is skipped, not fatal: a snapshot that is
+    missing a few hundred products is still useful, and the monthly refresh fills the gaps."""
     products: dict[str, dict] = {}
-    page = 1
-    while True:
+    page, pages, misses = 1, None, 0
+    while pages is None or page <= pages:
         q = {
             "countries_tags": "en:australia",
             "stores_tags": store,
@@ -97,30 +99,21 @@ def fetch_products(store: str = "coles", page_size: int = 100) -> list[dict]:
         }
         try:
             data = get(f"{SEARCH}?{urllib.parse.urlencode(q)}")
-        except RuntimeError:
-            legacy = {
-                "action": "process",
-                "json": 1,
-                "page_size": page_size,
-                "page": page,
-                "fields": q["fields"],
-                "tagtype_0": "countries",
-                "tag_contains_0": "contains",
-                "tag_0": "australia",
-                "tagtype_1": "stores",
-                "tag_contains_1": "contains",
-                "tag_1": store,
-            }
-            data = get(f"https://world.openfoodfacts.org/cgi/search.pl?{urllib.parse.urlencode(legacy)}")
-        batch = data.get("products", [])
-        for p in batch:
+            misses = 0
+        except RuntimeError as e:
+            misses += 1
+            print(f"page {page}: skipped ({e})", flush=True)
+            if misses >= 3 or pages is None:
+                break
+            page += 1
+            continue
+        pages = pages or -(-int(data.get("count") or 0) // page_size)
+        for p in data.get("products", []):
             if p.get("code") and (p.get("product_name") or p.get("product_name_en")):
                 products[p["code"]] = slim(p)
-        print(f"page {page}: {len(batch)} products ({len(products)} kept of {data.get('count')})", flush=True)
-        if len(batch) < page_size:
-            break
+        print(f"page {page}/{pages}: {len(products)} kept", flush=True)
         page += 1
-        time.sleep(7)  # Open Food Facts asks for at most ~10 search requests a minute
+        time.sleep(12)  # Open Food Facts asks for at most ~10 search requests a minute
     return list(products.values())
 
 
@@ -151,7 +144,13 @@ def fetch_prices() -> list[dict]:
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     products = fetch_products()
-    prices = fetch_prices()
+    if len(products) < 1000:
+        raise SystemExit(f"Only {len(products)} products fetched; keeping the previous snapshot.")
+    try:
+        prices = fetch_prices()
+    except RuntimeError as e:
+        print(f"Open Prices unavailable ({e}); continuing with demo prices only.")
+        prices = []
     meta = {
         "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "source": "Open Food Facts (products sold in Australia, tagged as stocked at a major supermarket)",

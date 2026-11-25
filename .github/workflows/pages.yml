@@ -1,0 +1,59 @@
+name: Deploy the demo to GitHub Pages
+
+# Builds the web app with the Python agent bundled for in-browser (Pyodide) execution and
+# publishes it to https://<owner>.github.io/<repo>/. No server: API keys never leave the device.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test the code that ships to the browser
+        run: |
+          pip install -e ".[dev]"
+          pytest -q
+      - name: Bundle the agent and product snapshot
+        run: |
+          python scripts/build_web_bundle.py
+          echo "PY_VERSION=$(cat web/public/py/trolley.zip data/catalogue.json.gz | sha256sum | cut -c1-12)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the web app
+        working-directory: web
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_PY_VERSION: ${{ env.PY_VERSION }}
+        run: |
+          npm install
+          npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

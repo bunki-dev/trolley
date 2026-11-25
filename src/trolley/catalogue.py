@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -323,7 +324,10 @@ class Catalogue:
 
 def data_dir() -> Path:
     here = Path(__file__).resolve()
-    for candidate in (here.parents[2] / "data", Path(str(resources.files("trolley"))) / "data"):
+    env = os.environ.get("TROLLEY_DATA_DIR")
+    candidates = [Path(env)] if env else []
+    candidates += [here.parents[2] / "data", Path(str(resources.files("trolley"))) / "data"]
+    for candidate in candidates:
         if (candidate / "catalogue.json.gz").exists():
             return candidate
     raise FileNotFoundError("No product snapshot found. Run scripts/fetch_catalogue.py.")

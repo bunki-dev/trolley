@@ -100,8 +100,9 @@ def test_refund_engine_decides_amounts(s):
 def test_late_credit_once(s):
     first = call(s, "report_issue", order_id="T-1002", kind="late_delivery")
     assert first["outcome"] == "credited" and first["amount"] == "$10.00"
-    again = call(s, "report_issue", order_id="T-1002", kind="late_delivery")
-    assert again["outcome"] == "declined"
+    with pytest.raises(ToolError, match="Already handled"):
+        call(s, "report_issue", order_id="T-1002", kind="late_delivery")
+    assert len(s.store.cases) == 1
     on_time = call(s, "report_issue", order_id="T-1001", kind="late_delivery")
     assert on_time["outcome"] == "declined"
 

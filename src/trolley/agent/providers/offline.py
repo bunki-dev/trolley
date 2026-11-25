@@ -150,7 +150,19 @@ class OfflineProvider:
                 oid = upcoming[0]["order_id"] if upcoming else None
             return [_call("cancel_order", order_id=oid)] if oid and "cancel_order" not in called else []
 
-        if re.search(r"\b(change|move|reschedule|different (day|time))\b", t) and re.search(r"deliver|order|slot", t):
+        if (
+            re.search(
+                r"\b(polic(y|ies)|how long|fees?|cut-?off|privacy|how much (is|does) delivery|"
+                r"delivery (cost|fee|charge))\b",
+                t,
+            )
+            and not oid
+        ):
+            return [] if called else [_call("search_help", question=user[:200])]
+
+        if re.search(r"\b(change|move|reschedule|different (day|time))\b", t) and (
+            oid or re.search(r"deliver|order|slot", t)
+        ):
             if not oid:
                 if "list_orders" not in called:
                     return [_call("list_orders")]
