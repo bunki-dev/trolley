@@ -61,13 +61,16 @@ KEEP_NUTRIENTS = [
 
 def get(url: str) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    for attempt in range(5):
+    for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:  # noqa: S310 - fixed public APIs
-                return json.loads(r.read())
+            t = time.time()
+            with urllib.request.urlopen(req, timeout=40) as r:
+                data = json.loads(r.read())
+            print(f"  {url[:90]}... {time.time() - t:.1f}s", flush=True)
+            return data
         except Exception as e:  # rate limits and blips: back off and retry
-            wait = 15 * (attempt + 1)
-            print(f"  retry in {wait}s ({e})")
+            wait = 10 * (attempt + 1)
+            print(f"  retry in {wait}s ({e})", flush=True)
             time.sleep(wait)
     raise RuntimeError(f"giving up on {url}")
 
@@ -92,12 +95,28 @@ def fetch_products(store: str = "coles", page_size: int = 100) -> list[dict]:
             "page": page,
             "sort_by": "unique_scans_n",
         }
-        data = get(f"{SEARCH}?{urllib.parse.urlencode(q)}")
+        try:
+            data = get(f"{SEARCH}?{urllib.parse.urlencode(q)}")
+        except RuntimeError:
+            legacy = {
+                "action": "process",
+                "json": 1,
+                "page_size": page_size,
+                "page": page,
+                "fields": q["fields"],
+                "tagtype_0": "countries",
+                "tag_contains_0": "contains",
+                "tag_0": "australia",
+                "tagtype_1": "stores",
+                "tag_contains_1": "contains",
+                "tag_1": store,
+            }
+            data = get(f"https://world.openfoodfacts.org/cgi/search.pl?{urllib.parse.urlencode(legacy)}")
         batch = data.get("products", [])
         for p in batch:
             if p.get("code") and (p.get("product_name") or p.get("product_name_en")):
                 products[p["code"]] = slim(p)
-        print(f"page {page}: {len(batch)} products ({len(products)} kept of {data.get('count')})")
+        print(f"page {page}: {len(batch)} products ({len(products)} kept of {data.get('count')})", flush=True)
         if len(batch) < page_size:
             break
         page += 1
